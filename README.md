@@ -2,6 +2,8 @@
 
 Extract attachments from `.eml` files with **pure PowerShell** — no external libraries, no NuGet. Built for Windows PowerShell 5.1 (works in Windows Sandbox) and intended for malware/phish triage of saved or quarantined mail.
 
+![Static Badge](https://img.shields.io/badge/Powershell-5.1%2B-darkblue)
+
 ## Features
 
 - Recursive MIME parsing (nested `multipart/*` and `message/rfc822` wrappers)
