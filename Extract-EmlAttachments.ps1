@@ -105,6 +105,13 @@ function Walk-Mime {
         return
     }
 
+    # message/rfc822 -> the body IS a full nested email. Recurse into it so we
+    # reach attachments inside forwarded / quarantine-wrapped messages.
+    if ($headers -match '(?im)Content-Type:\s*message/rfc822') {
+        Walk-Mime -Chunk $body -Base $Base -Save $Save -Inline $Inline
+        return
+    }
+
     # leaf part — keep attachments (and inline if requested). Also keep parts
     # that declare a filename but no Content-Disposition (common in Outlook
     # mail), while still skipping the plain text/html body parts.
@@ -182,7 +189,7 @@ function Extract-One {
 
 # ---------- main ----------
 
-if (-not (Test-Path $SavePath)) { New-Item -ItemType Directory -Path $SavePath | Out-Null }
+if (-not (Test-Path -LiteralPath $SavePath)) { New-Item -ItemType Directory -Path $SavePath | Out-Null }
 
 $results = @()
 if ($PSCmdlet.ParameterSetName -eq 'Folder') {
@@ -201,7 +208,20 @@ if ($results) {
     }
     Write-Host ("`n{0} attachment(s) extracted to {1}" -f $results.Count, $SavePath)
 } else {
-    Write-Warning "No attachments extracted. Run a structure dump to inspect the MIME layout:"
-    Write-Host '  $t=[System.Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($EmlPath));' -ForegroundColor DarkGray
-    Write-Host '  [regex]::Matches($t,''(?im)(boundary="?[^"\r\n;]+"?|Content-Type:[^\r\n]+|Content-Disposition:[^\r\n]+)'')|%{$_.Value}' -ForegroundColor DarkGray
+    Write-Warning "No attachments extracted. MIME structure dump follows so the layout can be inspected:"
+    $dumpTargets = if ($PSCmdlet.ParameterSetName -eq 'Folder') {
+        Get-ChildItem -Path $Folder -Filter *.eml -File | Select-Object -ExpandProperty FullName
+    } else { @($EmlPath) }
+
+    foreach ($dt in $dumpTargets) {
+        if (-not (Test-Path -LiteralPath $dt)) { continue }
+        Write-Host "`n--- $dt ---" -ForegroundColor Cyan
+        $t = [System.Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($dt))
+        $crlf = ([regex]::Matches($t, "`r`n")).Count
+        $lf   = ([regex]::Matches($t, "(?<!`r)`n")).Count
+        Write-Host ("Size: {0} bytes   CRLF pairs: {1}   bare-LF: {2}" -f $t.Length, $crlf, $lf) -ForegroundColor DarkGray
+        [regex]::Matches($t, '(?im)(boundary="?[^"\r\n;]+"?|Content-Type:[^\r\n]+|Content-Disposition:[^\r\n]+|Content-Transfer-Encoding:[^\r\n]+)') |
+            ForEach-Object { Write-Host ("  " + $_.Value.Trim()) }
+    }
+    Write-Host "`nPaste the dump above if the parser still misses an attachment." -ForegroundColor Yellow
 }
